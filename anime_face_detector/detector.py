@@ -8,6 +8,7 @@ import numpy as np
 import torch.nn as nn
 from mmdet.apis import inference_detector, init_detector
 from mmengine.config import Config
+from mmengine.registry import DefaultScope
 from mmpose.apis import inference_topdown, init_model
 
 
@@ -93,8 +94,10 @@ class LandmarkDetector:
         return model
 
     def _detect_faces(self, image: np.ndarray) -> list[np.ndarray]:
-        # mmdet 3.x returns DetDataSample
-        result = inference_detector(self.face_detector, image)
+        # Set mmdet scope for face detection
+        with DefaultScope.overwrite_default_scope('mmdet'):
+            # mmdet 3.x returns DetDataSample
+            result = inference_detector(self.face_detector, image)
         # Extract bboxes and scores from pred_instances
         pred_instances = result.pred_instances
         bboxes = pred_instances.bboxes.cpu().numpy()
@@ -128,11 +131,13 @@ class LandmarkDetector:
         # Convert boxes to numpy array format expected by inference_topdown
         bboxes = np.array(boxes) if boxes else np.empty((0, 5))
 
-        # inference_topdown returns list of PoseDataSample
-        # Pass only first 4 columns (x0, y0, x1, y1) - mmpose 1.x expects (N, 4) format
-        results = inference_topdown(
-            self.landmark_detector, image, bboxes[:, :4], bbox_format='xyxy'
-        )
+        # Set mmpose scope for landmark detection
+        with DefaultScope.overwrite_default_scope('mmpose'):
+            # inference_topdown returns list of PoseDataSample
+            # Pass only first 4 columns (x0, y0, x1, y1) - mmpose 1.x expects (N, 4) format
+            results = inference_topdown(
+                self.landmark_detector, image, bboxes[:, :4], bbox_format='xyxy'
+            )
 
         # Convert PoseDataSample to dict format for backward compatibility
         preds = []
