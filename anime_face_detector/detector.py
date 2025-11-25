@@ -5,21 +5,19 @@ import warnings
 from typing import Optional, Union
 
 import cv2
-import mmcv
 import numpy as np
 import torch.nn as nn
+from mmengine.config import Config
 from mmdet.apis import inference_detector, init_detector
-from mmpose.apis import inference_top_down_pose_model, init_pose_model
-from mmpose.datasets import DatasetInfo
+from mmpose.apis import inference_topdown, init_model
 
 
 class LandmarkDetector:
     def __init__(
             self,
-            landmark_detector_config_or_path: Union[mmcv.Config, str,
-                                                    pathlib.Path],
+            landmark_detector_config_or_path: Union[Config, str, pathlib.Path],
             landmark_detector_checkpoint_path: Union[str, pathlib.Path],
-            face_detector_config_or_path: Optional[Union[mmcv.Config, str,
+            face_detector_config_or_path: Optional[Union[Config, str,
                                                          pathlib.Path]] = None,
             face_detector_checkpoint_path: Optional[Union[
                 str, pathlib.Path]] = None,
@@ -27,8 +25,6 @@ class LandmarkDetector:
             flip_test: bool = True,
             box_scale_factor: float = 1.1):
         landmark_config = self._load_config(landmark_detector_config_or_path)
-        self.dataset_info = DatasetInfo(
-            landmark_config.dataset_info)  # type: ignore
         face_detector_config = self._load_config(face_detector_config_or_path)
 
         self.landmark_detector = self._init_pose_model(
@@ -41,24 +37,26 @@ class LandmarkDetector:
 
     @staticmethod
     def _load_config(
-        config_or_path: Optional[Union[mmcv.Config, str, pathlib.Path]]
-    ) -> Optional[mmcv.Config]:
-        if config_or_path is None or isinstance(config_or_path, mmcv.Config):
+        config_or_path: Optional[Union[Config, str, pathlib.Path]]
+    ) -> Optional[Config]:
+        if config_or_path is None or isinstance(config_or_path, Config):
             return config_or_path
-        return mmcv.Config.fromfile(config_or_path)
+        return Config.fromfile(config_or_path)
 
     @staticmethod
-    def _init_pose_model(config: mmcv.Config,
+    def _init_pose_model(config: Config,
                          checkpoint_path: Union[str, pathlib.Path],
                          device: str, flip_test: bool) -> nn.Module:
         if isinstance(checkpoint_path, pathlib.Path):
             checkpoint_path = checkpoint_path.as_posix()
-        model = init_pose_model(config, checkpoint_path, device=device)
-        model.cfg.model.test_cfg.flip_test = flip_test
+        model = init_model(config, checkpoint_path, device=device)
+        # Set flip_test in model config if available
+        if hasattr(model.cfg, 'model') and hasattr(model.cfg.model, 'test_cfg'):
+            model.cfg.model.test_cfg.flip_test = flip_test
         return model
 
     @staticmethod
-    def _init_face_detector(config: Optional[mmcv.Config],
+    def _init_face_detector(config: Optional[Config],
                             checkpoint_path: Optional[Union[str,
                                                             pathlib.Path]],
                             device: str) -> Optional[nn.Module]:
@@ -71,9 +69,17 @@ class LandmarkDetector:
         return model
 
     def _detect_faces(self, image: np.ndarray) -> list[np.ndarray]:
-        # predicted boxes using mmdet model have the format of
-        # [x0, y0, x1, y1, score]
-        boxes = inference_detector(self.face_detector, image)[0]
+        # mmdet 3.x returns DetDataSample
+        result = inference_detector(self.face_detector, image)
+        # Extract bboxes and scores from pred_instances
+        pred_instances = result.pred_instances
+        bboxes = pred_instances.bboxes.cpu().numpy()
+        scores = pred_instances.scores.cpu().numpy()
+        # Combine to [x0, y0, x1, y1, score] format
+        boxes = []
+        for bbox, score in zip(bboxes, scores):
+            box = np.append(bbox, score)
+            boxes.append(box)
         # scale boxes by `self.box_scale_factor`
         boxes = self._update_pred_box(boxes)
         return boxes
@@ -93,14 +99,27 @@ class LandmarkDetector:
 
     def _detect_landmarks(
             self, image: np.ndarray,
-            boxes: list[dict[str, np.ndarray]]) -> list[dict[str, np.ndarray]]:
-        preds, _ = inference_top_down_pose_model(
-            self.landmark_detector,
-            image,
-            boxes,
-            format='xyxy',
-            dataset_info=self.dataset_info,
-            return_heatmap=False)
+            boxes: list[np.ndarray]) -> list[dict[str, np.ndarray]]:
+        # mmpose 1.x uses inference_topdown with different interface
+        # Convert boxes to numpy array format expected by inference_topdown
+        bboxes = np.array(boxes) if boxes else np.empty((0, 5))
+
+        # inference_topdown returns list of PoseDataSample
+        results = inference_topdown(self.landmark_detector, image, bboxes)
+
+        # Convert PoseDataSample to dict format for backward compatibility
+        preds = []
+        for i, result in enumerate(results):
+            pred_instances = result.pred_instances
+            keypoints = pred_instances.keypoints[0]  # (K, 2)
+            keypoint_scores = pred_instances.keypoint_scores[0]  # (K,)
+            # Combine keypoints and scores to [x, y, score] format
+            keypoints_with_scores = np.concatenate(
+                [keypoints, keypoint_scores[:, np.newaxis]], axis=1)
+            preds.append({
+                'bbox': boxes[i],
+                'keypoints': keypoints_with_scores
+            })
         return preds
 
     @staticmethod
@@ -143,5 +162,4 @@ class LandmarkDetector:
                     'region.')
                 h, w = image.shape[:2]
                 boxes = [np.array([0, 0, w - 1, h - 1, 1])]
-        box_list = [{'bbox': box} for box in boxes]
-        return self._detect_landmarks(image, box_list)
+        return self._detect_landmarks(image, boxes)
