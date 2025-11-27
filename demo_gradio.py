@@ -1,5 +1,4 @@
 import argparse
-import functools
 import pathlib
 
 import cv2
@@ -11,35 +10,41 @@ import torch
 import anime_face_detector
 
 
-def detect(img, face_score_threshold: float, landmark_score_threshold: float,
-           detector: anime_face_detector.LandmarkDetector) -> PIL.Image.Image:
-    image = cv2.imread(img)
-    preds = detector(image)
+def create_detect_fn(detector: anime_face_detector.LandmarkDetector):
+    """Create a detection function with the detector bound via closure."""
 
-    res = image.copy()
-    for pred in preds:
-        box = pred['bbox']
-        box, score = box[:4], box[4]
-        if score < face_score_threshold:
-            continue
-        box = np.round(box).astype(int)
+    def detect(
+        img, face_score_threshold: float, landmark_score_threshold: float
+    ) -> PIL.Image.Image:
+        image = cv2.imread(img)
+        preds = detector(image)
 
-        lt = max(2, int(3 * (box[2:] - box[:2]).max() / 256))
+        res = image.copy()
+        for pred in preds:
+            box = pred['bbox']
+            box, score = box[:4], box[4]
+            if score < face_score_threshold:
+                continue
+            box = np.round(box).astype(int)
 
-        cv2.rectangle(res, tuple(box[:2]), tuple(box[2:]), (0, 255, 0), lt)
+            lt = max(2, int(3 * (box[2:] - box[:2]).max() / 256))
 
-        pred_pts = pred['keypoints']
-        for *pt, score in pred_pts:
-            if score < landmark_score_threshold:
-                color = (0, 255, 255)
-            else:
-                color = (0, 0, 255)
-            pt = np.round(pt).astype(int)
-            cv2.circle(res, tuple(pt), lt, color, cv2.FILLED)
-    res = cv2.cvtColor(res, cv2.COLOR_BGR2RGB)
+            cv2.rectangle(res, tuple(box[:2]), tuple(box[2:]), (0, 255, 0), lt)
 
-    image_pil = PIL.Image.fromarray(res)
-    return image_pil
+            pred_pts = pred['keypoints']
+            for *pt, score in pred_pts:
+                if score < landmark_score_threshold:
+                    color = (0, 255, 255)
+                else:
+                    color = (0, 0, 255)
+                pt = np.round(pt).astype(int)
+                cv2.circle(res, tuple(pt), lt, color, cv2.FILLED)
+        res = cv2.cvtColor(res, cv2.COLOR_BGR2RGB)
+
+        image_pil = PIL.Image.fromarray(res)
+        return image_pil
+
+    return detect
 
 
 def main():
@@ -69,15 +74,14 @@ def main():
 
     detector = anime_face_detector.create_detector(args.detector,
                                                    device=args.device)
-    func = functools.partial(detect, detector=detector)
-    func = functools.update_wrapper(func, detect)
+    detect_fn = create_detect_fn(detector)
 
     title = 'hysts/anime-face-detector'
     description = 'Demo for hysts/anime-face-detector. To use it, simply upload your image, or click one of the examples to load them. Read more at the links below.'
     article = "<a href='https://github.com/hysts/anime-face-detector'>GitHub Repo</a>"
 
     gr.Interface(
-        func,
+        detect_fn,
         [
             gr.Image(type='filepath', label='Input'),
             gr.Slider(
