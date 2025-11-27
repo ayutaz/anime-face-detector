@@ -65,6 +65,40 @@ pip install -e .
 
 Tested on Ubuntu and Windows with CUDA 12.1.
 
+## Docker (GPU)
+
+Pre-built Docker image with CUDA support is available on GitHub Container Registry.
+
+### Pull and run
+
+```bash
+# Pull the pre-built image
+docker pull ghcr.io/ayutaz/anime-face-detector:gpu-cuda12.1
+
+# Run with GPU support
+docker run --gpus all -v /path/to/your/images:/data ghcr.io/ayutaz/anime-face-detector:gpu-cuda12.1 python -c "
+from anime_face_detector import create_detector
+import cv2
+
+detector = create_detector('yolov3', device='cuda:0')
+image = cv2.imread('/data/your_image.jpg')
+preds = detector(image)
+print(f'Detected {len(preds)} faces')
+"
+```
+
+### Build from source
+
+If you need to build the Docker image yourself:
+
+```bash
+git clone https://github.com/ayutaz/anime-face-detector
+cd anime-face-detector
+docker build -t anime-face-detector:gpu .
+```
+
+**Note:** Building from source takes 30-60 minutes because mmcv needs to be compiled with CUDA ops.
+
 ## Usage
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hysts/anime-face-detector/blob/main/demo.ipynb)
 
