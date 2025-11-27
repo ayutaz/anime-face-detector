@@ -5,6 +5,7 @@
 [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-orange)](https://huggingface.co/spaces/hysts/anime-face-detector)
 [![MIT License](https://img.shields.io/badge/license-MIT-green)](https://opensource.org/licenses/MIT)
 [![GitHub stars](https://img.shields.io/github/stars/hysts/anime-face-detector.svg?style=flat-square&logo=github&label=Stars&logoColor=white)](https://github.com/hysts/anime-face-detector)
+[![Docker Image](https://img.shields.io/badge/Docker-ghcr.io-blue?logo=docker)](https://ghcr.io/ayutaz/anime-face-detector)
 
 This is an anime face detector using
 [mmdetection](https://github.com/open-mmlab/mmdetection)
@@ -98,6 +99,8 @@ docker build -t anime-face-detector:gpu .
 ```
 
 **Note:** Building from source takes 30-60 minutes because mmcv needs to be compiled with CUDA ops.
+
+**Supported GPU architectures:** Volta (7.0), Turing (7.5), Ampere (8.0, 8.6), Ada Lovelace (8.9), Hopper (9.0)
 
 ## Usage
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hysts/anime-face-detector/blob/main/demo.ipynb)
